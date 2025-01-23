@@ -15,3 +15,5 @@ D0 with klipper and:
 
 ## Post processing script
 /scripts
+
+Based on https://github.com/zruncho3d/DuelingZero/blob/main/src/duel.py
