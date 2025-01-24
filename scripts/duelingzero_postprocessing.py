@@ -14,6 +14,7 @@ import argparse
 import os
 import sys
 import time
+from fileinput import close
 
 from gcodeparser import GcodeParser, GcodeLine
 #import requests
@@ -34,7 +35,7 @@ DEF_MOVE_MODE = 'smart'
 
 def home():
     # Make sure your homing works correctly for homing xy only.
-    run_gcode("G28 X Y")
+    run_gcode(None, "G28 X Y")
 
 
 def center():
@@ -42,8 +43,9 @@ def center():
     # run_gcode("G0 X60 Y60 F6000")
 
 
-def run_gcode(gcode):
-    
+def run_gcode(output, gcode):
+    if output:
+    ret = output.write(gcode+"\n")
     # requests.post("http://" + printer + "/printer/gcode/script?script=" + gcode, timeout=(1, READ_TIMEOUT))
     # TODO instead of posting write to file is needed
 
@@ -79,6 +81,7 @@ class DuelRunner:
         self.simple_shuffles = 0
         self.backup_shuffles = 0
         self.segmented_shuffles = 0
+        self.output = None
 
     def t0_park(self):
         for gcode in ["T0", "G0 X%s F%s" % (X_LOW, PARK_SPEED), "G0 Y%s F%s" % (Y_HIGH, PARK_SPEED), "M400"]:
@@ -135,7 +138,7 @@ class DuelRunner:
         return line.command == ('G', 0) or line.command == ('G', 1)
 
     def run_gcode(self, gcode_line):
-            run_gcode(gcode_line)
+        run_gcode( self.output, gcode_line)
 
     @staticmethod
     def get_corresponding_x(toolhead_pos, next_toolhead_pos, target_y):
@@ -298,16 +301,7 @@ class DuelRunner:
                 # (2) Check swept area against inactive bounding box
                 overlap_swept = check_for_overlap_sweep(toolhead_pos, next_toolhead_pos, inactive_toolhead_pos)
 
-                if self.move_mode == 'simple':
-                    if overlap_rect:
-                        print("  ! Bounding boxes overlap: %s %s.  Exiting." % (inactive_toolhead_pos, next_toolhead_pos))
-                        sys.exit(1)
-                    if overlap_swept:
-                        print("  ! Swept bounding boxes overlap: %s --> %s vs %s.  Exiting." %
-                              (toolhead_pos, next_toolhead_pos, next_toolhead_pos))
-                        sys.exit(1)
-
-                elif self.move_mode == 'smart':
+                if self.move_mode == 'smart':
                     # Check if a single move will suffice.
                     if overlap_rect or overlap_swept:
                         self.run_gcode(self.get_active_printer_name(active_instance), "M400")
@@ -373,12 +367,11 @@ class DuelRunner:
 
                     # If no overlap, just do the straight line.
                     else:
-                        self.run_gcode(self.get_active_printer_name(active_instance), line.gcode_str)
+                        self.run_gcode(line.gcode_str)
 
                 # Should not be necessary... workaround to test, despite M400 insertion bugs.
                 if self.m400_always:
-                    for instance in [self.left, self.right]:
-                        self.run_gcode(self.left, "M400")
+                    self.run_gcode("M400")
 
                 # Update position of toolhead after execution
                 if active_instance == 'left':
@@ -386,58 +379,41 @@ class DuelRunner:
                 elif active_instance == 'right':
                     right_toolhead_pos = next_toolhead_pos
 
-        for instance in [self.left, self.right]:
-            self.run_gcode(instance, "M400")
+            if self.m400_always:
+                self.run_gcode("M400")
 
     def run(self):
         if args.input and not os.path.exists(args.input):
             print("Invalid input file path: %s" % args.input)
             sys.exit(1)
 
-        if args.latency_test:
-            dr.test_latency()
+        if args.output:
+            self.output = open(args.output, "a")  # append mode
+            if self.output is None:
+                print("Could not create output file: %s" % args.output)
+                sys.exit(1)
 
         print("Running:")
-        left = args.left
-        right = args.right
 
-        if (args.home or args.input) and not args.dry_run:
-            home(left)
-            home(right)
+        if args.home or args.input:
+            home()
 
         if args.input:
             self.play_gcodes_file(args.input)
 
-        else:
-            if args.meet and not args.dry_run:
-                center(left)
-                center(right)
-
-            if args.battle:
-                dz = Battle(run_gcode, left, right)
-                dz.cmdloop()
-
-        if args.home_after and not args.dry_run:
-            home(left)
-            home(right)
-
+        if args.home_after
+            home()
+        self.output.close()
         print("Finished.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a Dual Gantry printer.")
-    parser.add_argument('--left', help="T0 (left) printer address - something like dz.local")
-    parser.add_argument('--right', help="T1 (right) printer address - something like dz.local")
-    parser.add_argument('--battle', help="Begin battle!", action='store_true')
-    parser.add_argument('--meet', help="Meet in center", action='store_true')
     parser.add_argument('--home', help="Home first", action='store_true')
     parser.add_argument('--home-after', help="Home after print", action='store_true')
-    parser.add_argument('--dry-run', help="Dry run", action='store_true')
     parser.add_argument('--m400-always', help="Always run M400 after input moves", action='store_true')
     parser.add_argument('--input', help="Input gcode filepath")
     parser.add_argument('--output', help="Output gcode filepath")
-    parser.add_argument('--move_mode', help="Interference mode: simple fails, smart splits moves", default=DEF_MOVE_MODE)
-    parser.add_argument('--latency-test', help="Measure latency of command exec", action='store_true')
     parser.add_argument('--verbose', help="Use more-verbose debug output", action='store_true')
 
     args = parser.parse_args()
