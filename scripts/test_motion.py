@@ -3,7 +3,7 @@
 #   pip3 install nose
 #   python3 -m nose test_motion.py
 
-from duel import DuelRunner
+from duelingzero_postprocessing import DuelRunner
 from point import Point
 
 # Assume back-left, front-right homing, w/o following motion after.

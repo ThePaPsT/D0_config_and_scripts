@@ -3,7 +3,7 @@
 #   pip3 install nose
 #   python3 -m nose test_gcode_file.py
 
-from duel import DuelRunner
+from duelingzero_postprocessing import DuelRunner
 
 # List of tuples: totals for each type:
 # simple_shuffles
@@ -48,7 +48,7 @@ def check_motion_case(simple, backup, segmented, gcode_file):
 
 GCODE_FILE_FILTER = None
 # Uncomment to test a subset of cases
-GCODE_FILE_FILTER = "gcode/square_2_layer.gcode"
+#GCODE_FILE_FILTER = "gcode/square_2_layer.gcode"
 
 
 def test_motion_case():

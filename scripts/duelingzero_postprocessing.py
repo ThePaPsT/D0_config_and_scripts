@@ -139,6 +139,7 @@ class DuelRunner:
         # TODO: handle extrusion in the move split and retain the g-code used for the move (G0 vs G1, etc.)
         x = self.get_corresponding_x(toolhead_pos, next_toolhead_pos, target_y)
         mid_pos = Point(x, target_y)
+        self.run_gcode("; Segmented sequence start")
         print("  ! Segmented sequence")
         print("  ! Doing first part of move sequence")
         self.t0_go_to(mid_pos)
@@ -150,9 +151,11 @@ class DuelRunner:
         self.t0_go_to(mid_pos)
         print(" ! Doing second part of move sequence : %s" % mid_pos)
         self.t0_go_to(next_toolhead_pos)
+        self.run_gcode("; Segmented sequence end")
         return right_toolhead_pos
 
     def do_right_backup_sequence(self, toolhead_pos, inactive_toolhead_pos, line):
+        self.run_gcode("; Backup sequence start")
         print("  ! Backup sequence")
         print("  ! Backup sequence: t0 Backing up")
         self.t0_backoff()
@@ -164,6 +167,7 @@ class DuelRunner:
         print(" ! Running original move.")
         self.t1_activate()
         self.run_gcode( line.gcode_str)
+        self.run_gcode("; Backup sequence end")
         return right_toolhead_pos
 
     def do_left_segmented_sequence(self, toolhead_pos, target_y, next_toolhead_pos, inactive_toolhead_pos):
@@ -174,6 +178,7 @@ class DuelRunner:
         # TODO: handle extrusion in the move split and retain the g-code used for the move (G0 vs G1, etc.)
         x = self.get_corresponding_x(toolhead_pos, next_toolhead_pos, target_y)
         mid_pos = Point(x, target_y)
+        self.run_gcode("; Segmented sequence start")
         print("  ! Segmented sequence")
         print("  ! Doing first part of move sequence")
         self.t1_go_to(mid_pos)
@@ -185,9 +190,11 @@ class DuelRunner:
         self.t1_go_to(mid_pos)
         print("  ! Doing second part of move sequence : %s" % mid_pos)
         self.t1_go_to(next_toolhead_pos)
+        self.run_gcode("; Segmented sequence end")
         return left_toolhead_pos
 
     def do_left_backup_sequence(self, toolhead_pos, inactive_toolhead_pos, line):
+        self.run_gcode("; Backup sequence start")
         print("  ! Backup sequence")
         print("  ! Backup shuffle: t1 Backing up")
         self.t1_backoff()
@@ -198,20 +205,8 @@ class DuelRunner:
         self.t1_go_to(toolhead_pos)
         print("  ! Running original move.")
         self.run_gcode(line.gcode_str)
+        self.run_gcode("; Backup sequence end")
         return left_toolhead_pos
-
-    def get_active_printer_name(self, active_instance):
-        if active_instance == 'left':
-            return self.left
-        else:
-            return self.right
-
-    @staticmethod
-    def get_nonactive_printer_name(active_instance):
-        if active_instance == 'left':
-            return 'right'
-        else:
-            return 'left'
 
     def play_gcodes_file(self, gcode_file):
         with open(gcode_file, 'r') as f:
@@ -249,7 +244,7 @@ class DuelRunner:
                     left_toolhead_pos = LEFT_HOME_POS
                     active_instance = 'right'
                 # Add toolchange to file, so the printer knows about it, too
-                self.run_gcode(line)
+                self.run_gcode(line.gcode_str)
 
             elif self.is_move_gcode(line):
 
