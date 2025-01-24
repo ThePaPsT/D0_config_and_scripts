@@ -9,6 +9,12 @@
 # Sample invocations:
 #   ./dueling_postprocessing.py --home --home_after  sample.gcode --output sample_d0_ready.gcode
 #
+# DONE Repeated parking which is not required, but reprocessing a file again  should not alter the output (i -> o -> o)
+# FIXME Initial check of active toolhead is working. But added parking routine from the  first run changes the active tool head!
+#  maybe used T0 / T1 with comment for parking / (by this script in general added tool changes) added moves? ?
+#  should be fine for now for single execution of script.
+# FIXME Z lift
+# FIXME Extrusion in split print moves
 
 import argparse
 import os
@@ -125,7 +131,7 @@ class DuelRunner:
         # Compute the new path portion that gets us clear of the future parked inactive extruder in the Y.
         # y = mx + b; slope (m); intercept (b);
         m = (next_toolhead_pos.y - toolhead_pos.y) / (next_toolhead_pos.x - toolhead_pos.x)
-        b = (toolhead_pos.y - m) / toolhead_pos.x
+        b = toolhead_pos.y - m * toolhead_pos.x  # changed from b = (toolhead_pos.y - m) / toolhead_pos.x
         # Find point on the line where Y-val = min to clear.
         # x = (<Y val> - b) / m
         x = (target_y - b) / m
@@ -217,13 +223,13 @@ class DuelRunner:
         """Execute all G-codes from file content, inserting backups/shuffles/splits as needed."""
         lines = GcodeParser(input_file_content).lines
 
-        active_instance = 'left'
+        active_instance = 'left'  # T0
         left_toolhead_pos = LEFT_HOME_POS.copy()
         right_toolhead_pos = RIGHT_HOME_POS.copy()
 
         for line in lines:
-            print(line.gcode_str)
-            # TODO: ignore Tx when x is already active; save a few M400s and maybe moves that way.
+            # print(line.gcode_str)
+
 
             if self.is_toolchange_gcode(line):
                 next_instance = None
@@ -231,18 +237,32 @@ class DuelRunner:
                     next_instance = 'left'
                 elif line == T1:
                     next_instance = 'right'
-                print("  *   draining moves for %s, then changing to %s (M400)" %
-                      (active_instance, next_instance))
-                self.run_gcode("M400")
-                print("  *   parking currently active toolhead (%s) " % active_instance)
                 if line == T0:
-                    self.t1_park()
-                    right_toolhead_pos = RIGHT_HOME_POS
-                    active_instance = 'left'
+                    if active_instance == 'left':
+                        print( "Tool already active")
+                    else:
+                        # debug info
+                        print("  *   draining moves for %s, then changing to %s (M400)" %
+                              (active_instance, next_instance))
+                        print("  *   parking currently active toolhead (%s) " % active_instance)
+                        # end debug info
+                        self.run_gcode("M400")
+                        self.t1_park()
+                        right_toolhead_pos = RIGHT_HOME_POS
+                        active_instance = 'left'
                 elif line == T1:
-                    self.t0_park()
-                    left_toolhead_pos = LEFT_HOME_POS
-                    active_instance = 'right'
+                    if active_instance == 'right':
+                        print("Tool already active")
+                    else:
+                        # debug info
+                        print("  *   draining moves for %s, then changing to %s (M400)" %
+                              (active_instance, next_instance))
+                        print("  *   parking currently active toolhead (%s) " % active_instance)
+                        # end debug info
+                        self.run_gcode("M400")
+                        self.t0_park()
+                        left_toolhead_pos = LEFT_HOME_POS
+                        active_instance = 'right'
                 # Add toolchange to file, so the printer knows about it, too
                 self.run_gcode(line.gcode_str)
 
@@ -354,7 +374,7 @@ class DuelRunner:
                     right_toolhead_pos = next_toolhead_pos
             else:
                 # Add all other lines, non toolchange / non move lines to file
-                self.run_gcode(line)
+                self.run_gcode(line.gcode_str)
 
     def run(self):
         if args.input and not os.path.exists(args.input):
@@ -362,7 +382,7 @@ class DuelRunner:
             sys.exit(1)
 
         if args.output:
-            self.output = open(args.output, "a")  # append mode
+            self.output = open(args.output, "w")  # reset given output file
             if self.output is None:
                 print("Could not create output file: %s" % args.output)
                 sys.exit(1)
@@ -377,7 +397,10 @@ class DuelRunner:
 
         if args.home_after:
             self.home()
-        self.output.close()
+
+        if self.output:
+            self.output.close()
+
         print("Finished.")
 
 
