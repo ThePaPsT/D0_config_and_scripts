@@ -20,10 +20,9 @@ import argparse
 import os
 import sys
 
-from cloudinit.settings import PER_ONCE
 from gcodeparser import GcodeParser, GcodeLine
 from mako.runtime import Namespace
-from referencing.exceptions import PointerToNowhere
+from sympy import false
 
 from toolhead import check_for_overlap, check_for_overlap_sweep
 from toolhead import Y_HEIGHT, T0_X_BACKOFF, T1_X_BACKOFF, Y_HIGH, Y_LOW, X_HIGH, X_LOW
@@ -40,46 +39,48 @@ class DuelRunner:
     def __init__(self, passed_args: Namespace):
         if passed_args is not None:
             self.args: Namespace = passed_args
-        # Use empty Args for regression testing, until this can be properly refactored.
-        # Motion should be separate from execution.
-        else:
-            self.left = 'left'
-            self.right = 'right'
-            self.dry_run = True
+            self.output = None
+            self.output_filename : str = passed_args.output
+            self.input: str = passed_args.input
+
+            if passed_args.gcodefile != "":
+                self.input = passed_args.gcodefile
+                self.output_filename = passed_args.gcodefile
+
         # Initialize metrics
         self.simple_shuffles:int = 0
         self.backup_shuffles:int = 0
         self.segmented_shuffles:int = 0
-        self.output = None
+
 
 
     def home(self):
         # Make sure your homing works correctly for homing xy only.
         # Change if your homing requires a different active tool head.
         for gcode_str in ["T0 ; %s home"%PP_comment, "G28 X Y"]:
-            self.run_gcode(gcode_str)
+            self.write_gcode_to_file(gcode_str)
 
     def t0_park(self)-> Point:
         for gcode in ["T0 ; %s t0_park"%PP_comment, "G0 X%s F%s" % (X_LOW, PARK_SPEED), "G0 Y%s F%s" % (Y_HIGH, PARK_SPEED)]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return Point(X_LOW, Y_HIGH)
 
     def t1_park(self) -> Point:
         for gcode in ["T1 ; %s t1_park"%PP_comment, "G0 X%s F%s" % (X_HIGH, PARK_SPEED), "G0 Y%s F%s" % (Y_HIGH, PARK_SPEED)]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return Point(X_HIGH, Y_HIGH)
 
     def t0_backoff(self, pos:Point) ->Point:
         # TODO create second version without activation
         #for gcode in ["T0 ; %s t0_backoff"%PP_comment, "G0 X%s F%s" % (T0_X_BACKOFF, BACKOFF_SPEED)]:
         for gcode in ["; %s t0_backoff" % PP_comment, "G0 X%s F%s" % (T0_X_BACKOFF, BACKOFF_SPEED)]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return Point(T0_X_BACKOFF, pos.y)
     def t1_backoff(self, pos:Point ) -> Point:
         # TODO create second version without activation
         #for gcode in ["T1 ; %s t1_backoff"%PP_comment, "G0 X%s F%s" % (T1_X_BACKOFF, BACKOFF_SPEED)]:
         for gcode in ["; %s t1_backoff" % PP_comment, "G0 X%s F%s" % (T1_X_BACKOFF, BACKOFF_SPEED)]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return Point(T1_X_BACKOFF, pos.y)
 
     def t0_shuffle(self, pos : Point) -> Point:
@@ -90,7 +91,7 @@ class DuelRunner:
         elif pos.y == Y_HIGH:
             new_y = Y_LOW
         for gcode in ["T0 ; %s t0_shuffle"%PP_comment, "G0 Y%s F%s" % (new_y, SHUFFLE_SPEED)]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return Point(pos.x, new_y)
 
     def t1_shuffle(self, pos : Point) -> Point:
@@ -101,35 +102,35 @@ class DuelRunner:
         elif pos.y == Y_HIGH:
             new_y = Y_LOW
         for gcode in ["T1 ; %s t1_shuffle"%PP_comment, "G0 Y%s F%s" % (new_y, SHUFFLE_SPEED)]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return Point(pos.x, new_y)
 
     def t0_go_to_w_a(self, pos : Point) -> Point:
         for gcode in ["T0 ; %s t0_go_to"%PP_comment, "G0 X%s Y%s F%s" % (pos.x, pos.y, MOVE_TO_SPEED)]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return pos
     def t0_go_to(self, pos : Point) -> Point:
         for gcode in ["; %s t0_go_to"%PP_comment, "G0 X%s Y%s F%s" % (pos.x, pos.y, MOVE_TO_SPEED)]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return pos
 
     def t1_go_to_w_a(self, pos : Point) -> Point:
         for gcode in ["T1 ; %s t1_go_to"%PP_comment, "G0 X%s Y%s F%s" % (pos.x, pos.y, MOVE_TO_SPEED)]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return pos
     def t1_go_to(self, pos : Point) -> Point:
         for gcode in ["; %s t1_go_to"%PP_comment, "G0 X%s Y%s F%s" % (pos.x, pos.y, MOVE_TO_SPEED)]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return pos
 
     def t0_activate(self, pos : Point ) -> Point:
         for gcode in ["T0 ; %s t0_activate"%PP_comment]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return pos
 
     def t1_activate(self, pos:Point) -> Point:
         for gcode in ["T1 ; %s t1_activate"%PP_comment]:
-            self.run_gcode(gcode)
+            self.write_gcode_to_file(gcode)
         return pos
 
     @staticmethod
@@ -140,9 +141,10 @@ class DuelRunner:
     def is_move_gcode(line : GcodeLine) -> bool:
         return line.command == ('G', 0) or line.command == ('G', 1)
 
-    def run_gcode(self, gcode_line: str):
+    def write_gcode_to_file(self, gcode_line: str):
         if self.output:
-            self.output.write(gcode_line + "\n")
+            # self.output.write(gcode_line + "\n")
+            self.output.write(' '.join(gcode_line.split()) + "\n")
 
     @staticmethod
     def get_corresponding_x(toolhead_pos, next_toolhead_pos, target_y):
@@ -171,7 +173,7 @@ class DuelRunner:
         # TODO: keep feedrate for original
         x = self.get_corresponding_x(toolhead_pos, next_toolhead_pos, target_y)
         mid_pos = Point(x, target_y)
-        self.run_gcode("; Right segmented sequence start")
+        self.write_gcode_to_file("; Right segmented sequence start")
         print("  ! Segmented sequence")
         print("  ! Doing first part of move sequence")
         # TODO  orignal print move
@@ -185,22 +187,22 @@ class DuelRunner:
         print(" ! Doing second part of move sequence : %s to %s" % (mid_pos,next_toolhead_pos ))
         # TODO  orignal print move
         self.t0_go_to(next_toolhead_pos)
-        self.run_gcode("; Right segmented sequence end")
+        self.write_gcode_to_file("; Right segmented sequence end")
         return right_toolhead_pos
 
     def do_right_backup_sequence(self, toolhead_pos, inactive_toolhead_pos, line):
-        self.run_gcode("; Right Backup sequence start")
+        self.write_gcode_to_file("; Right Backup sequence start")
         print("  ! Backup sequence")
         print("  ! Backup sequence: t0 Backing up")
-        self.t0_backoff(Point(0.0))  # no T0 needed
+        self.t0_backoff(Point(0,0))  # no T0 needed
         print("  ! Shuffling inactive t1")
         right_toolhead_pos = self.t1_shuffle(inactive_toolhead_pos)
         # Restore original x for active instance
         print(" ! Resuming after backup: t0 restoring to %s" % toolhead_pos)
         self.t0_go_to_w_a(toolhead_pos)
         print(" ! Running original move.")
-        self.run_gcode( line.gcode_str)
-        self.run_gcode("; Right backup sequence end")
+        self.write_gcode_to_file(line.gcode_str)
+        self.write_gcode_to_file("; Right backup sequence end")
         return right_toolhead_pos
 
     def do_left_segmented_sequence(self, toolhead_pos, target_y, next_toolhead_pos, inactive_toolhead_pos):
@@ -212,7 +214,7 @@ class DuelRunner:
         # TODO: keep feedrate for original
         x = self.get_corresponding_x(toolhead_pos, next_toolhead_pos, target_y)
         mid_pos = Point(x, target_y)
-        self.run_gcode("; Left segmented sequence start")
+        self.write_gcode_to_file("; Left segmented sequence start")
         print("  ! Segmented sequence")
         print("  ! Doing first part of move sequence")
         # TODO do first half of orignal print move
@@ -226,11 +228,11 @@ class DuelRunner:
         print("  ! Doing second part of move sequence : %s to %s"  % (mid_pos,next_toolhead_pos ))
         # TODO resume orignal print move
         self.t1_go_to(next_toolhead_pos) # no activation needed
-        self.run_gcode("; Left segmented sequence end")
+        self.write_gcode_to_file("; Left segmented sequence end")
         return left_toolhead_pos
 
     def do_left_backup_sequence(self, toolhead_pos, inactive_toolhead_pos, line):
-        self.run_gcode("; Left backup sequence start")
+        self.write_gcode_to_file("; Left backup sequence start")
         print("  ! Backup sequence ")
         print("  ! Backup shuffle: t1 Backing up")
         self.t1_backoff(Point(0,0)) # no activation needed
@@ -240,13 +242,20 @@ class DuelRunner:
         print("  ! Resuming after backup: t1 restoring to %s" % toolhead_pos)
         self.t1_go_to_w_a(toolhead_pos)
         print("  ! Running original move.")
-        self.run_gcode(line.gcode_str)
-        self.run_gcode("; Left backup sequence end")
+        self.write_gcode_to_file(line.gcode_str)
+        self.write_gcode_to_file("; Left backup sequence end")
         return left_toolhead_pos
 
     def play_gcodes_file(self, gcode_file):
         with open(gcode_file, 'r') as f:
             file_content = f.read()
+        f.close()
+        # now open output. which could be the same as input
+        self.output = open(self.output_filename, "w")  # reset given output file
+        if self.output is None:
+            print("Could not create output file: %s" % self.output_filename)
+            sys.exit(1)
+
         self.play_gcodes(file_content)
 
     def play_gcodes(self, input_file_content):
@@ -292,15 +301,15 @@ class DuelRunner:
                             left_toolhead_pos = self.t0_park()
                             active_instance = 'right'
                 else:
-                    print("Unknown Toolheadnr")
+                    print("Unknown toolhead number")
                     sys.exit(1)
 
                 # Add input toolchange to file, so the printer knows about it, too
                 if PP_comment in line.comment:
-                    self.run_gcode(line.gcode_str)
+                    self.write_gcode_to_file(line.gcode_str)
                 else:
                     # Add comment, that this Toolchange has been post processed i.e. parking inserted
-                    self.run_gcode(line.gcode_str + "; handled by %s "%PP_comment)
+                    self.write_gcode_to_file(line.gcode_str + " ; handled by %s " % PP_comment)
 
             elif self.is_move_gcode(line):
 
@@ -354,7 +363,7 @@ class DuelRunner:
                             print("  ! Shuffling inactive t1")
                             right_toolhead_pos = self.t1_shuffle(right_toolhead_pos)
                             left_toolhead_pos =self.t0_activate(left_toolhead_pos)
-                            self.run_gcode(line.gcode_str)
+                            self.write_gcode_to_file(line.gcode_str)
 
                         # Segmented move: active is now in the front, and would conflict with a back-to-front shuffled inactive toolhead
                         elif toolhead_pos.y <= min_y_to_clear_inactive_toolhead:
@@ -383,7 +392,7 @@ class DuelRunner:
                             print("  ! Shuffling inactive t0")
                             left_toolhead_pos = self.t0_shuffle(left_toolhead_pos)
                             right_toolhead_pos = self.t1_activate(right_toolhead_pos)
-                            self.run_gcode(line.gcode_str)
+                            self.write_gcode_to_file(line.gcode_str)
 
                         # Segmented move: active is in the front
                         elif toolhead_pos.y <= min_y_to_clear_inactive_toolhead:
@@ -404,7 +413,7 @@ class DuelRunner:
 
                 # If no overlap, just do the straight line.
                 else:
-                    self.run_gcode(line.gcode_str)
+                    self.write_gcode_to_file(line.gcode_str)
 
                 # Update position of toolhead after execution
                 if active_instance == 'left':
@@ -413,29 +422,18 @@ class DuelRunner:
                     right_toolhead_pos = next_toolhead_pos
             else:
                 # Add all other lines, non toolchange / non move lines to file
-                self.run_gcode(line.gcode_str)
+                self.write_gcode_to_file(line.gcode_str)
 
     def run(self):
         if args.input and not os.path.exists(args.input):
             print("Invalid input file path: %s" % args.input)
             sys.exit(1)
 
-        if args.output:
-            self.output = open(args.output, "w")  # reset given output file
-            if self.output is None:
-                print("Could not create output file: %s" % args.output)
-                sys.exit(1)
-
         print("Running:")
-
-        if args.home:
-            self.home()
-
-        if args.input:
+        if args.gcodefile:
+            self.play_gcodes_file(args.gcodefile)
+        elif args.input:
             self.play_gcodes_file(args.input)
-
-        if args.home_after:
-            self.home()
 
         if self.output:
             self.output.close()
@@ -445,11 +443,12 @@ class DuelRunner:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a Dual Gantry printer.")
-    parser.add_argument('--home', help="Home first", action='store_true')
-    parser.add_argument('--home-after', help="Home after print", action='store_true')
-    parser.add_argument('--input', help="Input gcode filepath", default='./examples/single_move.gcode')
-    parser.add_argument('--output', help="Output gcode filepath", default='./out/simple_line.gcode')
-    parser.add_argument('--verbose', help="Use more-verbose debug output", action='store_true')
+    #parser.add_argument('--home', help="Home first", action='store_true')
+    #parser.add_argument('--home-after', help="Home after print", action='store_true')
+    parser.add_argument('--input', help="Input gcode filepath")
+    parser.add_argument('--output', help="Output gcode filepath")
+    #parser.add_argument('--verbose', help="Use more-verbose debug output", action='store_true')
+    parser.add_argument('gcodefile', nargs='?')
 
     args = parser.parse_args()
 
