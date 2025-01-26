@@ -5,6 +5,7 @@ from shapely.geometry import Polygon
 from point import Point
 
 # Change these values to match your printer.
+# TODO Maybe split for T0 and T1 as tool heads may not be the same (thus different sizes and parking positions)
 Y_HEIGHT = 160.0
 Y_HIGH = 159.0
 Y_LOW = 1.0
@@ -15,8 +16,10 @@ X_LOW = 1.0
 LEFT_ALT_Y = Y_LOW
 RIGHT_ALT_Y = Y_LOW
 
-LEFT_HOME_POS = Point(X_LOW, Y_HIGH)
-RIGHT_HOME_POS = Point(X_HIGH, Y_HIGH)
+LEFT_PARK_POS = Point(X_LOW, Y_HIGH)  # T0
+RIGHT_PARK_POS = Point(X_HIGH, Y_LOW) # T1  default homing: Y_HIGH
+
+Z_LIFT = 0.4   # lift for inserted moves, set to <= 0 to disable
 
 SHUFFLE_SPEED = 15000
 BACKOFF_SPEED = 15000

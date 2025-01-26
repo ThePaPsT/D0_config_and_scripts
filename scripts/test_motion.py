@@ -56,9 +56,9 @@ def check_motion_case(simple, backup, segmented, gcode, name):
     dr = DuelRunner(None)
     gcode_content = "\n".join(gcode)
     dr.play_gcodes(gcode_content)
-    success = (simple == dr.simple_shuffles and
-             backup == dr.backup_shuffles and
-             segmented == dr.segmented_shuffles)
+    success = (simple == (dr.simple_shuffles_t0 +dr.simple_shuffles_t1)  and
+             backup == (dr.backup_shuffles_t0 + dr.backup_shuffles_t1 ) and
+             segmented == (dr.segmented_shuffles_t0 + dr.segmented_shuffles_t1))
     assert success, "%s: simple: %s, backup: %s, segmented: %s, " % \
                                        (name, simple, backup, segmented)
 
