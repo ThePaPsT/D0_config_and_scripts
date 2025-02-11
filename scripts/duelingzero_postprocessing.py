@@ -9,14 +9,15 @@
 # Sample invocations:
 #   ./dueling_postprocessing.py --input sample.gcode --output sample_d0_ready.gcode
 #   ./dueling_postprocessing.py --verbose --input sample.gcode --output sample_d0_ready.gcode
-#       FOr more output on the console
+#       for more output on the console
 #   ./dueling_postprocessing.py --verboseGcode  sliced.gcode
-#       For commented gcode for slicer (i.e. post-processing call)
+#       for commented gcode for slicer (i.e. post-processing call)
 # Features:
 #  - Collision avoidance based on zruncho3d code.
 #  - Split extrusion move
 #  - Feed rate restoration
 #  - Interface usable by Slicers
+#  - Z-lift for inserted moves
 #  - Optional comments in output gcode to mark inserted sections
 #  - Once processed output can be reprocessed with no change, means no collision causing gcode insertions ;)
 
@@ -64,18 +65,22 @@ class DuelRunner:
         self.park_moves_t1 : int = 0
 
     def t0_park(self)-> Point:
-        """Park TO at X_LOW and Y_HIGH. Activates toolhead T0"""
+        """Park TO at LEFT_PARK_POS. Activates toolhead T0"""
         self.park_moves_t0 += 1
+        self.z_up()
         for gcode in ["T0 ; %s t0_park"%PP_comment, "G0 X%s F%s" % (LEFT_PARK_POS.x, PARK_SPEED), "G0 Y%s F%s" % (LEFT_PARK_POS.y, PARK_SPEED)]:
             self.write_gcode_to_file(gcode)
+        self.z_down()
         self.need_to_restore_feed_rate = True
         return LEFT_PARK_POS
 
     def t1_park(self) -> Point:
-        """Park T1 at X_HIGH and Y_HIGH. Activates toolhead T1"""
+        """Park T1 at RIGHT_PARK_POS. Activates toolhead T1"""
         self.park_moves_t1 += 1
+        self.z_up()
         for gcode in ["T1 ; %s t1_park"%PP_comment, "G0 X%s F%s" % (RIGHT_PARK_POS.x, PARK_SPEED), "G0 Y%s F%s" % (RIGHT_PARK_POS.y, PARK_SPEED)]:
             self.write_gcode_to_file(gcode)
+        self.z_down()
         self.need_to_restore_feed_rate = True
         return RIGHT_PARK_POS
 
@@ -244,7 +249,7 @@ class DuelRunner:
         if self.verbose:print("  ! Backing up t0")
         self.z_up()
         self.t0_backoff(Point(0,0)) # no activation needed
-        if self.verbose:print("  ! Shuffling inactive 1")
+        if self.verbose:print("  ! Shuffling inactive t1")
         right_toolhead_pos = self.t1_shuffle(inactive_toolhead_pos)
         if self.verbose:print(" ! Restoring t0 to mid_pos after backup: %s" % mid_pos)
         self.t0_go_to_w_a(mid_pos)
