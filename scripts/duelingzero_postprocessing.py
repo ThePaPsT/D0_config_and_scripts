@@ -177,8 +177,9 @@ class DuelRunner:
     def restore_feed_rate(self):
         """Restore feed rate if required"""
         if self.need_to_restore_feed_rate:
-            for gcode in ["G1 F%s ; restored feed_rate by %s" % (self.last_feed_rate , PP_comment)]:
-                self.write_gcode_to_file(gcode)
+            if self.last_feed_rate > 0:
+                for gcode in ["G1 F%s ; restored feed_rate by %s" % (self.last_feed_rate , PP_comment)]:
+                    self.write_gcode_to_file(gcode)
             self.need_to_restore_feed_rate = False
 
     def write_gcode_to_file(self, gcode_line: str):
